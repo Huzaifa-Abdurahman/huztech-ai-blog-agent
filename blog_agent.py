@@ -2,6 +2,9 @@ import requests
 import feedparser
 import os
 from datetime import datetime
+from transformers import pipeline
+
+
 
 # ================== Trending Topic Fetchers ==================
 def fetch_reddit_headlines():
@@ -105,6 +108,24 @@ def post_to_wordpress(title, content):
     response = requests.post(wp_url, headers=headers, json=data, auth=auth)
     print("✅ Posted:", response.status_code)
 
+def check_llm_plagiarism(blog_content):
+    print("🤖 Running LLM-based plagiarism check...")
+
+    try:
+        checker = pipeline("text-classification", model="roberta-base-openai-detector")
+        result = checker(blog_content[:512])  # Limit to 512 tokens
+        label = result[0]['label']
+        score = result[0]['score']
+
+        print(f"🔍 LLM Classifier Result: {label} ({score:.2f})")
+
+        if label.lower() == "real" or score < 0.6:
+            return True  # Considered original enough
+        else:
+            return False  # Too likely to be AI-generated or copied
+    except Exception as e:
+        print("❌ Error during LLM plagiarism check:", e)
+        return False
 # ================== Main Function ==================
 def main():
     topic = get_top_topic()
@@ -117,9 +138,10 @@ def main():
         print("❌ Content failed AdSense/self-check. Skipping.")
         return
 
-    if not check_plagiarism(blog_content):
-        print("❌ Plagiarism too high. Skipping post.")
-        return
+   if not check_llm_plagiarism(blog_content):
+    print("❌ LLM-style check failed (may be AI-generated or copied). Skipping post.")
+    return
+
 
     title = f"{topic} – {datetime.now().strftime('%B %d, %Y') }"
     post_to_wordpress(title, blog_content)
