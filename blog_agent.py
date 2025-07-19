@@ -3,8 +3,9 @@ import feedparser
 import os
 from datetime import datetime
 from transformers import pipeline
+from dotenv import load_dotenv
 
-
+load_dotenv()  # Load .env file
 
 # ================== Trending Topic Fetchers ==================
 def fetch_reddit_headlines():
@@ -73,7 +74,7 @@ def check_adsense_and_originality(content):
     response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
     return response.json()["choices"][0]["message"]["content"]
 
-# ================== Plagiarism Check ==================
+# ================== Plagiarism Check via API ==================
 def check_plagiarism(content):
     print("🔍 Checking plagiarism...")
     headers = {
@@ -94,6 +95,23 @@ def check_plagiarism(content):
         print("❌ Error in plagiarism check:", str(e))
         return False
 
+# ================== LLM-Style Detection ==================
+def check_llm_plagiarism(blog_content):
+    print("🤖 Running LLM-based plagiarism check...")
+    try:
+        checker = pipeline("text-classification", model="roberta-base-openai-detector")
+        result = checker(blog_content[:512])  # Limit to 512 tokens
+        label = result[0]['label']
+        score = result[0]['score']
+        print(f"🔍 LLM Classifier Result: {label} ({score:.2f})")
+        if label.lower() == "real" or score < 0.6:
+            return True  # Considered original enough
+        else:
+            return False  # Too likely to be AI-generated or copied
+    except Exception as e:
+        print("❌ Error during LLM plagiarism check:", e)
+        return False
+
 # ================== Post to WordPress ==================
 def post_to_wordpress(title, content):
     print("🚀 Posting to WordPress...")
@@ -108,43 +126,25 @@ def post_to_wordpress(title, content):
     response = requests.post(wp_url, headers=headers, json=data, auth=auth)
     print("✅ Posted:", response.status_code)
 
-def check_llm_plagiarism(blog_content):
-    print("🤖 Running LLM-based plagiarism check...")
-
-    try:
-        checker = pipeline("text-classification", model="roberta-base-openai-detector")
-        result = checker(blog_content[:512])  # Limit to 512 tokens
-        label = result[0]['label']
-        score = result[0]['score']
-
-        print(f"🔍 LLM Classifier Result: {label} ({score:.2f})")
-
-        if label.lower() == "real" or score < 0.6:
-            return True  # Considered original enough
-        else:
-            return False  # Too likely to be AI-generated or copied
-    except Exception as e:
-        print("❌ Error during LLM plagiarism check:", e)
-        return False
 # ================== Main Function ==================
 def main():
     topic = get_top_topic()
     blog_content = generate_blog(topic)
 
     review_result = check_adsense_and_originality(blog_content)
-    print("🧪 Self-check result:", review_result)
+    print("🧪 Self-check result:\n", review_result)
 
     if "YES" not in review_result.upper():
         print("❌ Content failed AdSense/self-check. Skipping.")
         return
 
-   if not check_llm_plagiarism(blog_content):
-    print("❌ LLM-style check failed (may be AI-generated or copied). Skipping post.")
-    return
+    if not check_llm_plagiarism(blog_content):
+        print("❌ LLM-style check failed (may be AI-generated or copied). Skipping post.")
+        return
 
-
-    title = f"{topic} – {datetime.now().strftime('%B %d, %Y') }"
+    title = f"{topic} – {datetime.now().strftime('%B %d, %Y')}"
     post_to_wordpress(title, blog_content)
 
+# ================== Run the Agent ==================
 if __name__ == "__main__":
     main()
